@@ -46,8 +46,11 @@ FUNCTION_TIME_OUT = 900_000 - FUNCTION_RUN_TIME
 MAX_THREADS = 20
 MAX_RETRIES = 5
 
-BRAZE_API_URL = os.environ['BRAZE_API_URL']
-BRAZE_API_KEY = os.environ['BRAZE_API_KEY']
+# BRAZE_API_URL = os.environ['BRAZE_API_URL']
+# BRAZE_API_KEY = os.environ['BRAZE_API_KEY']
+
+BRAZE_API_URL = 'foo'
+BRAZE_API_KEY = 'bar'
 
 if BRAZE_API_URL[-1] == '/':
     BRAZE_API_URL = BRAZE_API_URL[:-1]
@@ -128,7 +131,8 @@ class CsvProcessor:
     ) -> None:
         self.processing_offset = 0
         self.total_offset = offset
-        self.csv_file = _get_file_from_s3(bucket_name, object_key)
+        # self.csv_file = _get_file_from_s3(bucket_name, object_key)
+        self.csv_file = None
         self.headers = headers
         self.type_cast = type_cast or {}
 
@@ -147,8 +151,9 @@ class CsvProcessor:
         :param context: Context object providing information about the
                         function and runtime environment
         """
-        reader = csv.DictReader(self.iter_lines(), fieldnames=self.headers)
-        _verify_headers(reader.fieldnames, self.type_cast)
+        # reader = csv.DictReader(self.iter_lines(), fieldnames=self.headers)
+        reader = csv.DictReader(self.csv_file)
+        # _verify_headers(reader.fieldnames, self.type_cast)
         self.headers = reader.fieldnames or self.headers
 
         user_rows, user_row_chunks = [], []
@@ -168,16 +173,19 @@ class CsvProcessor:
                 user_row_chunks.append(user_rows)
                 user_rows = []
 
-            if len(user_row_chunks) == MAX_THREADS:
-                self.post_users(user_row_chunks)
-                if _should_terminate(context):
-                    break
-                user_row_chunks = []
+            print(user_rows)
+            # [{'external_id': '55aaa34e-a2bf-56aa-96b6-db4bb983b8f3', 'tags': ['test the lambda', 'looks good bro']}]
+
+            # if len(user_row_chunks) == MAX_THREADS:
+            #     # self.post_users(user_row_chunks)
+            #     # if _should_terminate(context):
+            #     #     break
+            #     user_row_chunks = []
 
         else:  # no break
             if user_rows:
                 user_row_chunks.append(user_rows)
-            self.post_users(user_row_chunks)
+            # self.post_users(user_row_chunks)
 
     def iter_lines(self) -> Iterator:
         """Iterates over lines in the object.
@@ -274,6 +282,8 @@ def _process_row(user_row: Dict, type_cast: TypeMap) -> Dict:
         if value.strip() == '':
             continue
         processed_row[col] = _process_value(value, type_cast.get(col))
+        if col == 'tags':
+            processed_row[col] = {'add': processed_row[col]}
     return processed_row
 
 
