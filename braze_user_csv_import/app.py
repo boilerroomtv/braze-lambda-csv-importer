@@ -48,6 +48,10 @@ MAX_RETRIES = 5
 
 BRAZE_API_URL = os.environ['BRAZE_API_URL']
 BRAZE_API_KEY = os.environ['BRAZE_API_KEY']
+DB_HOST = os.environ['DB_HOST']
+DATABASE = os.environ['DATABASE']
+DB_USER = os.environ['DB_USER']
+DB_PASSWORD = os.environ['DB_PASSWORD']
 
 if BRAZE_API_URL[-1] == '/':
     BRAZE_API_URL = BRAZE_API_URL[:-1]
@@ -274,6 +278,8 @@ def _process_row(user_row: Dict, type_cast: TypeMap) -> Dict:
             continue
         if value.strip() == '':
             continue
+        if col == 'email':
+            processed_row['external_id'] = get_external_id(value.strip())
         if col in ['tag1', 'tag2', 'tag3']:
             if not value.strip() = '':
                 tags.append(value.strip())
@@ -282,6 +288,25 @@ def _process_row(user_row: Dict, type_cast: TypeMap) -> Dict:
     
     processed_row['tags'] = {'add': tags}
     return processed_row
+
+
+def get_external_id(email_address: str):
+    conn = None
+    try:
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            database=DATABASE,
+            user=DB_USER,
+            password=DB_PASSWORD)
+        cur = conn.cursor()
+        ids = cur.execute(f"SELECT * FROM 'users_applicationuser' WHERE 'email_address' = {email_address}")
+        print(ids)
+        cur.close()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def _process_value(
