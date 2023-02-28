@@ -22,11 +22,13 @@ import ast
 import json
 from concurrent.futures.thread import ThreadPoolExecutor
 from typing import Dict, Iterator, List, Optional, Sequence, Type, Union
+import uuid
 
 import requests
 import boto3
 from urllib.parse import unquote_plus
 from requests.exceptions import RequestException
+import psycopg2
 
 from tenacity import (
     RetryCallState,
@@ -48,10 +50,8 @@ MAX_RETRIES = 5
 
 BRAZE_API_URL = os.environ['BRAZE_API_URL']
 BRAZE_API_KEY = os.environ['BRAZE_API_KEY']
-DB_HOST = os.environ['DB_HOST']
-DATABASE = os.environ['DATABASE']
-DB_USER = os.environ['DB_USER']
-DB_PASSWORD = os.environ['DB_PASSWORD']
+DB_STRING = os.environ['DB_STRING']
+ZAPIER_HOOK_URL = os.environ['ZAPIER_HOOK_URL']
 
 if BRAZE_API_URL[-1] == '/':
     BRAZE_API_URL = BRAZE_API_URL[:-1]
@@ -103,6 +103,8 @@ def lambda_handler(event, context):
         )
     else:
         print(f"File {object_key} import is complete")
+        requests.post(ZAPIER_HOOK_URL, data={'message': f'{object_key} was uploaded successfully. There were {csv_processor.processed_users} users processed'})
+
 
     _publish_message(object_key, True, csv_processor.processed_users)
     return {
@@ -160,8 +162,9 @@ class CsvProcessor:
             try:
                 processed_row = _process_row(row, self.type_cast)
             except Exception as e:
-                print(
-                    f"ERROR: Could not process row - {str(e)}. Failing row: {dict(row)}")
+                error_string = f"ERROR: Could not process row - {str(e)}. Failing row: {dict(row)}"
+                print(error_string)
+                requests.post(ZAPIER_HOOK_URL, data={'message': error_string})
                 continue
 
             if len(processed_row) <= 1:
@@ -251,13 +254,38 @@ def _verify_headers(columns: Optional[Sequence[str]], type_cast: TypeMap) -> Non
     :param columns: CSV file header columns
     :raises ValueError: if the format didn't meet the requirements
     """
-    if not columns:
+    if not columns or not len(columns) == 6:
+        raise ValueError(
+            "ERROR: Should have some columns, and no more than 6 please!")
         return
 
-    if columns[0] != 'external_id':
+    if columns[0] != 'email':
+        # The original code calls for external_id, but we generate this later
+        # after receiving an email address.
         raise ValueError(
             "ERROR: File headers don't match the expected format."
-            "First column should specify a user's 'external_id'")
+            "First column should specify a user's 'email'")
+    if columns[1] != 'email_subscribe':
+        raise ValueError(
+            "ERROR: File headers don't match the expected format."
+            "Second column should specify a user's opt in status")
+    if columns[2] != 'home_city':
+        raise ValueError(
+            "ERROR: File headers don't match the expected format."
+            "Second column should specify a user's city")
+    if columns[3] != 'tag1':
+        raise ValueError(
+            "ERROR: File headers don't match the expected format."
+            "Second column should be tag1")
+    if columns[4] != 'tag2':
+        raise ValueError(
+            "ERROR: File headers don't match the expected format."
+            "Second column should be tag2")
+    if columns[5] != 'tag3':
+        raise ValueError(
+            "ERROR: File headers don't match the expected format."
+            "Second column should be tag3")
+
 
     for column_name in type_cast:
         if column_name not in columns:
@@ -281,7 +309,7 @@ def _process_row(user_row: Dict, type_cast: TypeMap) -> Dict:
         if col == 'email':
             processed_row['external_id'] = get_external_id(value.strip())
         if col in ['tag1', 'tag2', 'tag3']:
-            if not value.strip() = '':
+            if not value.strip() == '':
                 tags.append(value.strip())
             continue
         processed_row[col] = _process_value(value, type_cast.get(col))
@@ -293,15 +321,23 @@ def _process_row(user_row: Dict, type_cast: TypeMap) -> Dict:
 def get_external_id(email_address: str):
     conn = None
     try:
-        conn = psycopg2.connect(
-            host=DB_HOST,
-            database=DATABASE,
-            user=DB_USER,
-            password=DB_PASSWORD)
+        conn = psycopg2.connect(dsn=DB_STRING)
         cur = conn.cursor()
-        ids = cur.execute(f"SELECT * FROM 'users_applicationuser' WHERE 'email_address' = {email_address}")
-        print(ids)
-        cur.close()
+        cur.execute(f"SELECT uuid FROM users_applicationuser WHERE email_address = '{email_address}'")
+        user = cur.fetchone()
+        if user:
+            cur.close()
+            return user[0]
+        else:
+            cur.execute(f"INSERT INTO users_applicationuser(email_address, uuid, auth0_id) VALUES ('{email_address}', '', '')")
+            conn.commit()
+            cur.execute(f"SELECT id FROM users_applicationuser WHERE email_address = '{email_address}'")
+            _id = cur.fetchone()[0]
+            user_uuid = uuid.uuid5(uuid.NAMESPACE_OID, str(_id))
+            cur.execute(f"UPDATE users_applicationuser SET uuid = '{user_uuid}' WHERE id = {_id}")
+            cur.close()
+            conn.commit()
+            return str(user_uuid)
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     finally:

@@ -12,7 +12,7 @@ fi
 
 echo "Packaging depencies"
 cd braze_user_csv_import
-pip install --target ./package requests tenacity
+pip install --target ./package requests tenacity psycopg
 echo "Packaging the app"
 cd package
 zip -r ../braze-lambda-user-csv-import-v"$VERSION".zip .

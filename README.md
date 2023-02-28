@@ -1,3 +1,17 @@
+# DEPLOYING THIS LAMBDA AT BOILERROOM:
+In order to deploy this to our lambda, you will need to create a packaged zip file.
+1. Start with the braze releases packaged zip, found here:
+(https://github.com/braze-inc/growth-shares-lambda-user-csv-import/releases)
+2. After that, replace "app.py" with our own app.py file
+3. Add psycopg2. This is non-trivial because aws lambda does not possess the requisite Libq library
+Luckily, some kind soul has created a github repo with the package we need. Download here
+(https://github.com/jkehler/awslambda-psycopg2)
+Rename the psycopg2-3.7 folder to psycopg2, and add to the packages above.
+Zip the whole thing (being careful not to zip any containing folder! The files should be zipped alone)
+4. Upload zip to the code section in the lambda
+
+
+
 # User Attribute CSV to Braze Ingestion
 
 ### [Deploy Application](https://console.aws.amazon.com/lambda/home?region=us-east-1#/create/app?applicationId=arn:aws:serverlessrepo:us-east-1:585170621372:applications/braze-user-attribute-import)
